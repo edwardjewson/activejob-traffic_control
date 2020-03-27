@@ -11,6 +11,7 @@ module ActiveJob
           period:,
           drop: false,
           key: nil,
+          bucket: nil,
           delay: period,
           min_delay_multiplier: 1,
           max_delay_multiplier: 5
@@ -20,7 +21,11 @@ module ActiveJob
           raise ArgumentError, "max_delay_multiplier needs to be a number >= max_delay_multiplier" unless max_delay_multiplier.is_a?(Numeric) && max_delay_multiplier >= min_delay_multiplier
           raise ArgumentError, "delay needs to a number > 0 " unless delay.is_a?(Numeric) && delay > 0
 
-          self.job_throttling = {
+          bucket ||= :_default
+
+          self.job_throttling ||= {}
+
+          self.job_throttling[bucket.to_sym] = {
             threshold: threshold,
             period: period,
             drop: drop,
@@ -31,8 +36,8 @@ module ActiveJob
           }
         end
 
-        def throttling_lock_key(job)
-          lock_key("throttle", job, job_throttling)
+        def throttling_lock_key(job, bucket)
+          lock_key("throttle_#{bucket}", job, job_throttling[bucket])
         end
       end
 
@@ -41,29 +46,48 @@ module ActiveJob
 
         class_attribute :job_throttling, instance_accessor: false
 
+        def job_throttling_bucket
+          :_default
+        end
+
         around_perform do |job, block|
-          if self.class.job_throttling.present?
-            lock_options = {
-              resources: self.class.job_throttling[:threshold],
-              stale_lock_expiration: self.class.job_throttling[:period]
-            }
-
-            with_lock_client(self.class.throttling_lock_key(job), lock_options) do |client|
-              token = client.lock
-
-              if token
-                block.call
-              elsif self.class.job_throttling[:drop]
-                drop("throttling")
-              else
-                delay = self.class.job_throttling[:delay]
-                min_delay_multiplier = self.class.job_throttling[:min_delay_multiplier]
-                max_delay_multiplier = self.class.job_throttling[:max_delay_multiplier]
-                reenqueue((delay * min_delay_multiplier)...(delay * max_delay_multiplier), "throttling")
-              end
-            end
-          else
+          if self.class.job_throttling.blank?
             block.call
+            next
+          end
+
+          bucket = job_throttling_bucket&.to_sym
+
+          if bucket.blank?
+            block.call
+            next
+          end
+
+          current_job_throttling = self.class.job_throttling[bucket]
+
+          if current_job_throttling.blank?
+            block.call
+            next
+          end
+
+          lock_options = {
+            resources: current_job_throttling[:threshold],
+            stale_lock_expiration: current_job_throttling[:period]
+          }
+
+          with_lock_client(self.class.throttling_lock_key(job, bucket), lock_options) do |client|
+            token = client.lock
+
+            if token
+              block.call
+            elsif current_job_throttling[:drop]
+              drop("throttling")
+            else
+              delay = current_job_throttling[:delay]
+              min_delay_multiplier = current_job_throttling[:min_delay_multiplier]
+              max_delay_multiplier = current_job_throttling[:max_delay_multiplier]
+              reenqueue((delay * min_delay_multiplier)...(delay * max_delay_multiplier), "throttling")
+            end
           end
         end
       end

@@ -38,6 +38,22 @@ module ActiveJob::TrafficControlTest
     end
   end
 
+  class ThrottleWithBucketsTestJob < ActiveJob::Base
+    throttle threshold: 2, period: 1.second, bucket: 'one'
+    throttle threshold: 1, period: 1.second, bucket: 'two'
+
+    attr_accessor :bucket
+
+    def job_throttling_bucket
+      arguments.first
+    end
+
+    def perform(bucket)
+      sleep 0.5
+      $count += 1
+    end
+  end
+
   class ThrottleNotDroppedTestJob < ActiveJob::Base
     throttle threshold: 2, period: 1.second, drop: false
 
@@ -133,6 +149,23 @@ module ActiveJob::TrafficControlTest
 
   def test_throttle_with_key
     throttle_helper(ThrottleWithKeyTestJob)
+  end
+
+  def test_throttle_with_buckets
+    klass = ThrottleWithBucketsTestJob
+
+    t1 = Thread.new { sleep(0.1); klass.perform_now(:one) }
+    t2 = Thread.new { sleep(0.1); klass.perform_now(:one) }
+    t3 = Thread.new { sleep(0.1); klass.perform_now(:one) }
+    t4 = Thread.new { sleep(0.1); klass.perform_now(:two) }
+    t5 = Thread.new { sleep(0.1); klass.perform_now(:two) }
+    [t1, t2, t3, t4, t5].map(&:join)
+    sleep 1
+    assert_equal 3, $count
+
+    sleep 3
+
+    assert_equal 5, $count
   end
 
   def test_throttle_with_proc_key

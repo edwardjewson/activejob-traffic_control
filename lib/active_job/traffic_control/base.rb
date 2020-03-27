@@ -12,7 +12,7 @@ module ActiveJob
 
       class_methods do
         def cleaned_name
-          name.to_s.gsub(/\W/, "_")
+          @cleaned_name ||= name.to_s.gsub(/\W/, "_")
         end
 
         def cache_client
@@ -24,12 +24,10 @@ module ActiveJob
             if config_attr[:key].respond_to?(:call)
               "traffic_control:#{prefix}:#{config_attr[:key].call(job)}"
             else
-              @static_job_key ||= begin
-                if config_attr[:key].present?
-                  "traffic_control:#{prefix}:#{config_attr[:key]}"
-                else
-                  "traffic_control:#{prefix}:#{cleaned_name}"
-                end
+              if config_attr[:key].present?
+                "traffic_control:#{prefix}:#{config_attr[:key]}"
+              else
+                "traffic_control:#{prefix}:#{cleaned_name}"
               end
             end
           end
