@@ -198,26 +198,6 @@ module ActiveJob::TrafficControlTest
   end
 end
 
-class MemcachedTrafficControlTest < Minitest::Test
-  include ActiveJob::TrafficControlTest
-
-  def setup
-    ActiveJob::TrafficControl.client = Dalli::Client.new
-    ActiveJob::TrafficControl.cache_client = ActiveSupport::Cache.lookup_store(:mem_cache_store, "localhost:11211")
-    setup_globals
-  end
-end
-
-class MemcachedPooledTrafficControlTest < Minitest::Test
-  include ActiveJob::TrafficControlTest
-
-  def setup
-    ActiveJob::TrafficControl.client = ConnectionPool.new(size: 5, timeout: 5) { Dalli::Client.new }
-    ActiveJob::TrafficControl.cache_client = ActiveSupport::Cache.lookup_store(:mem_cache_store, "localhost:11211", pool_size: 5)
-    setup_globals
-  end
-end
-
 class RedisTrafficControlTest < Minitest::Test
   include ActiveJob::TrafficControlTest
 
